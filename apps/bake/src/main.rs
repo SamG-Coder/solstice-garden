@@ -8,6 +8,7 @@
 //! bake --scene SCENE.txt [--texture-size N] [--output FILE]
 //! bake --gallery [--texture-size N] [--output FILE]
 //! bake --forest [--texture-size N] [--output FILE]
+//! bake --garden [--plan PLAN.ppm] [--texture-size N] [--output FILE]
 //! bake --plants [--only] [--species FILE.species]... [--grass FILE.grass]... [--texture-size N] [--output FILE]
 //! bake --check-character CHARACTER.glb [--roles RIG.roles]
 //! bake --scene SCENE.txt --show-collision [--output FILE]
@@ -37,6 +38,7 @@
 mod collision_view;
 mod forest;
 mod gallery;
+mod garden;
 mod plants;
 mod scene;
 
@@ -66,6 +68,9 @@ struct Options {
     gallery: bool,
     /// The procedural meadow and wood, instead of the demo scene.
     forest: bool,
+    /// The garden, instead of the demo scene, and where to write its plan as a picture.
+    garden: bool,
+    plan: Option<PathBuf>,
     /// A folder to write the land's surfaces to, ready-made for the editor.
     surfaces: Option<PathBuf>,
     /// Bakes what the scene collides with, instead of how it looks.
@@ -153,6 +158,8 @@ fn parse_args() -> Result<Options, String> {
         raw_textures: false,
         gallery: false,
         forest: false,
+        garden: false,
+        plan: None,
         surfaces: None,
         show_collision: false,
         plants: false,
@@ -221,6 +228,8 @@ fn parse_args() -> Result<Options, String> {
             "--raw-textures" => options.raw_textures = true,
             "--gallery" => options.gallery = true,
             "--forest" => options.forest = true,
+            "--garden" => options.garden = true,
+            "--plan" => options.plan = Some(PathBuf::from(value()?)),
             "--surfaces" => options.surfaces = Some(PathBuf::from(value()?)),
             "--show-collision" => options.show_collision = true,
             "--plants" => options.plants = true,
@@ -248,6 +257,13 @@ fn parse_args() -> Result<Options, String> {
 fn load_scene(options: &Options) -> Result<SceneAsset, String> {
     if options.forest {
         return Ok(forest::build(options.scene_texture_size.unwrap_or(1024)));
+    }
+    if options.garden {
+        return Ok(garden::build(
+            options.scene_texture_size.unwrap_or(1024),
+            options.plan.as_deref(),
+            Some(&options.output.with_extension("walk")),
+        ));
     }
     if options.plants {
         return plants::build(

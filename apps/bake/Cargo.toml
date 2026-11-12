@@ -15,4 +15,5 @@ solstice-import.workspace = true
 solstice-procgen.workspace = true
 glam.workspace = true
 rayon.workspace = true
+rustc-hash.workspace = true
 
