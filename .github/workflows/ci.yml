@@ -1,6 +1,7 @@
 name: CI
 
-# Changes to documentation alone build nothing, so they skip the build and tests.
+# Changes to documentation alone, or to which release holds the scene, build nothing, so they
+# skip the build and tests.
 on:
   push:
     branches: [main]
@@ -8,11 +9,13 @@ on:
       - "**.md"
       - "docs/**"
       - "LICENSE"
+      - "scene.txt"
   pull_request:
     paths-ignore:
       - "**.md"
       - "docs/**"
       - "LICENSE"
+      - "scene.txt"
 
 jobs:
   check:

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Builds the browser viewer into dist/, a self-contained static site. Bake the scenes first:
-#   cargo run --release -p bake -- --quality web --output assets/web.solstice
+# Builds the garden's site into dist/, a self-contained static site. Bake the garden first:
+#   cargo run --release -p bake -- --garden --output assets/garden.solstice
 #
 # The wasm-bindgen tool must match the wasm-bindgen library exactly, so the matching
 # version is installed inside target/, leaving any global installation alone.
@@ -16,30 +16,20 @@ if ! "$bindgen" --version 2>/dev/null | grep -q "$version"; then
   cargo install wasm-bindgen-cli --version "$version" --root "$tools" --locked
 fi
 
-# Two builds (docs/gameplay.md): the plain viewer, which every page loads, and the gameplay
-# viewer, with scripts and physics, loaded only to play a scene's game. The gameplay build turns
-# on wasm SIMD, which halves physics' cost and every browser with WebGPU has. Different compiler
-# flags can't share compiled crates, so it has a target folder of its own.
+# The garden is a place to walk, with no game to play, so it needs only the plain viewer, and
+# its own page is the site's front page.
 rm -rf dist
 mkdir -p dist/assets
 cargo build --release --target wasm32-unknown-unknown -p viewer --lib --no-default-features
-"$bindgen" --target web --no-typescript --out-dir dist/pkg   target/wasm32-unknown-unknown/release/solstice_viewer.wasm
-RUSTFLAGS="-C target-feature=+simd128"   cargo build --release --target wasm32-unknown-unknown -p viewer --lib --target-dir target/web-play
-"$bindgen" --target web --no-typescript --out-dir dist/play   target/web-play/wasm32-unknown-unknown/release/solstice_viewer.wasm
-cp apps/viewer/web/index.html dist/
-# Scene files are already compressed where it helps, part by part, so that the page can fetch
-# any part alone. Hard links keep big scenes from taking disk space twice.
-for scene in assets/*.solstice; do
-  # None in CI: there, scenes are served by their own sites.
-  [ -e "$scene" ] || continue
-  ln -f "$scene" "dist/assets/$(basename "$scene")" 2>/dev/null || cp "$scene" "dist/assets/"
-done
-# Games kept as folders of text, to play on scenes baked without them (?game=NAME): each
-# folder in scenes/ with a scene.game of its own.
-for game in scenes/*/scene.game; do
-  [ -e "$game" ] || continue
-  mkdir -p "dist/games/$(basename "$(dirname "$game")")"
-  cp -r "$(dirname "$game")"/* "dist/games/$(basename "$(dirname "$game")")/"
+"$bindgen" --target web --no-typescript --out-dir dist/pkg \
+  target/wasm32-unknown-unknown/release/solstice_viewer.wasm
+cp apps/viewer/web/garden.html dist/index.html
+# The scene and the heights its page walks on. Hard links keep the scene from taking disk space
+# twice.
+for file in assets/garden.solstice assets/garden.walk; do
+  # None in CI: there, they come from the release scene.txt names.
+  [ -e "$file" ] || continue
+  ln -f "$file" "dist/assets/$(basename "$file")" 2>/dev/null || cp "$file" "dist/assets/"
 done
 
 echo "built dist/. To try it: python scripts/serve.py"

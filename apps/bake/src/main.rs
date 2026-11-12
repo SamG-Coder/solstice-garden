@@ -8,7 +8,8 @@
 //! bake --scene SCENE.txt [--texture-size N] [--output FILE]
 //! bake --gallery [--texture-size N] [--output FILE]
 //! bake --forest [--texture-size N] [--output FILE]
-//! bake --plants [--species FILE.species]... [--grass FILE.grass]... [--texture-size N] [--output FILE]
+//! bake --garden [--plan PLAN.ppm] [--texture-size N] [--output FILE]
+//! bake --plants [--only] [--species FILE.species]... [--grass FILE.grass]... [--texture-size N] [--output FILE]
 //! bake --check-character CHARACTER.glb [--roles RIG.roles]
 //! bake --scene SCENE.txt --show-collision [--output FILE]
 //! ```
@@ -26,6 +27,7 @@ mod circuit;
 mod collision_view;
 mod forest;
 mod gallery;
+mod garden;
 mod land;
 mod meshes;
 mod plants;
@@ -51,10 +53,15 @@ struct Options {
     gallery: bool,
     /// The procedural meadow and wood, instead of the demo scene.
     forest: bool,
+    /// The garden, instead of the demo scene, and where to write its plan as a picture.
+    garden: bool,
+    plan: Option<PathBuf>,
     /// Bakes what the scene collides with, instead of how it looks.
     show_collision: bool,
     /// A row of every species, instead of the demo scene.
     plants: bool,
+    /// Only the species and grass files given, without the built-in ones.
+    only: bool,
     /// Species files to add to the row of plants.
     species: Vec<PathBuf>,
     /// Grass files to add to the row of grass.
@@ -131,8 +138,11 @@ fn parse_args() -> Result<Options, String> {
         raw_textures: false,
         gallery: false,
         forest: false,
+        garden: false,
+        plan: None,
         show_collision: false,
         plants: false,
+        only: false,
         species: Vec::new(),
         grass: Vec::new(),
         large_gltf: None,
@@ -192,8 +202,11 @@ fn parse_args() -> Result<Options, String> {
             "--raw-textures" => options.raw_textures = true,
             "--gallery" => options.gallery = true,
             "--forest" => options.forest = true,
+            "--garden" => options.garden = true,
+            "--plan" => options.plan = Some(PathBuf::from(value()?)),
             "--show-collision" => options.show_collision = true,
             "--plants" => options.plants = true,
+            "--only" => options.only = true,
             "--species" => {
                 options.plants = true;
                 options.species.push(PathBuf::from(value()?));
@@ -212,11 +225,19 @@ fn load_scene(options: &Options) -> Result<SceneAsset, String> {
     if options.forest {
         return Ok(forest::build(options.scene_texture_size.unwrap_or(1024)));
     }
+    if options.garden {
+        return Ok(garden::build(
+            options.scene_texture_size.unwrap_or(1024),
+            options.plan.as_deref(),
+            Some(&options.output.with_extension("walk")),
+        ));
+    }
     if options.plants {
         return plants::build(
             options.scene_texture_size.unwrap_or(1024),
             &options.species,
             &options.grass,
+            options.only,
         );
     }
     if options.gallery {

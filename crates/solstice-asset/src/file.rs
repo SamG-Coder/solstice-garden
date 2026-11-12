@@ -35,6 +35,8 @@ const VERSION: u32 = 4;
 const DEFLATE_LEVEL: u8 = 9;
 /// The optional section holding the scene's [`Sea`]: its level, then its ocean's text.
 const SEA_TAG: [u8; 4] = *b"SEA ";
+/// Still water: a count of ponds, five numbers for each, then the water's description as text.
+const POND_TAG: [u8; 4] = *b"POND";
 /// The optional section holding the scene's gameplay: how many [`GameFile`]s, then each one's
 /// name and text. Written only for scenes that have gameplay.
 const GAME_TAG: [u8; 4] = *b"GAME";
@@ -289,6 +291,16 @@ fn encode_manifest(scene: &PagedScene) -> Vec<u8> {
         let mut contents = sea.level.to_le_bytes().to_vec();
         contents.extend_from_slice(sea.ocean.as_bytes());
         w.section(SEA_TAG, &contents);
+    }
+    if let Some(still) = &scene.still_water {
+        let mut contents = (still.ponds.len() as u32).to_le_bytes().to_vec();
+        for pond in &still.ponds {
+            for value in pond {
+                contents.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        contents.extend_from_slice(still.water.as_bytes());
+        w.section(POND_TAG, &contents);
     }
     if !scene.gameplay.is_empty() {
         w.section(GAME_TAG, &encode_gameplay(&scene.gameplay));
@@ -808,6 +820,7 @@ pub fn decode_manifest(bytes: &[u8], data_offset: u64) -> Result<PagedScene, Dec
     let upper_mip_offsets: Vec<u64> = r.slice()?;
 
     let mut sea = None;
+    let mut still_water = None;
     let mut gameplay = Vec::new();
     let mut collision = None;
     let mut skin = None;
@@ -825,6 +838,28 @@ pub fn decode_manifest(bytes: &[u8], data_offset: u64) -> Result<PagedScene, Dec
             sea = Some(Sea {
                 level: f32::from_le_bytes(*level),
                 ocean: String::from_utf8(text.to_vec()).map_err(|_| DecodeError::BadSea)?,
+            });
+        } else if tag == POND_TAG {
+            let (count, rest) = contents
+                .split_first_chunk::<4>()
+                .ok_or(DecodeError::Truncated)?;
+            let count = u32::from_le_bytes(*count) as usize;
+            let numbers = count.checked_mul(20).ok_or(DecodeError::Truncated)?;
+            if rest.len() < numbers {
+                return Err(DecodeError::Truncated);
+            }
+            let (ponds, text) = rest.split_at(numbers);
+            let ponds = ponds
+                .chunks_exact(20)
+                .map(|pond| {
+                    std::array::from_fn(|k| {
+                        f32::from_le_bytes(pond[k * 4..k * 4 + 4].try_into().expect("four bytes"))
+                    })
+                })
+                .collect();
+            still_water = Some(crate::scene::StillWater {
+                ponds,
+                water: String::from_utf8(text.to_vec()).map_err(|_| DecodeError::BadSea)?,
             });
         } else if tag == GAME_TAG {
             gameplay = decode_gameplay(&contents)?;
@@ -898,6 +933,7 @@ pub fn decode_manifest(bytes: &[u8], data_offset: u64) -> Result<PagedScene, Dec
         lights,
         viewpoint: (has_viewpoint != 0).then_some(viewpoint),
         sea,
+        still_water,
         gameplay,
         collision,
         hierarchy_depth,

@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Garden</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --ink: #f3efe4;
+    --muted: rgba(243, 239, 228, 0.66);
+    --panel: rgba(18, 22, 16, 0.5);
+    --line: rgba(243, 239, 228, 0.18);
+    --leaf: #c9d8a2;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: #0c0f0a; color: var(--ink); overflow: hidden;
+    font: 14px/1.5 "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; outline: none; }
+  /* The way in: a title over the dark, which lifts when the garden is ready. */
+  #veil { position: fixed; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px;
+    background: radial-gradient(ellipse at 50% 60%, #1a2416 0%, #0c0f0a 70%); transition: opacity 2.4s ease; z-index: 3; }
+  #veil.lifted { opacity: 0; pointer-events: none; }
+  #veil h1 { font-weight: 400; font-size: clamp(34px, 6vw, 68px); letter-spacing: 0.08em; margin: 0 0 6px; }
+  #veil p { margin: 0; color: var(--muted); font-style: italic; font-size: 16px; }
+  #message { margin-top: 28px !important; font-style: normal !important; font-size: 13px !important;
+    font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif; min-height: 1.5em; }
+  #message.error { color: #ffb4a2; max-width: 52ch; }
+  #enter { margin-top: 26px; background: transparent; color: var(--ink); border: 1px solid var(--line);
+    border-radius: 999px; padding: 11px 30px; font: inherit; font-size: 16px; letter-spacing: 0.06em; cursor: pointer;
+    transition: background 0.3s, border-color 0.3s; }
+  #enter:hover { background: rgba(243, 239, 228, 0.1); border-color: var(--ink); }
+  #enter[hidden] { display: none; }
+  progress { width: 220px; height: 3px; margin-top: 16px; accent-color: var(--leaf); }
+  progress[hidden] { display: none; }
+  /* What little there is to touch, low in a corner, fading when left alone. */
+  .ui { position: fixed; z-index: 2; transition: opacity 1.2s ease; font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+    font-size: 12.5px; }
+  body.idle .ui { opacity: 0; }
+  #bar { left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px;
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+  #bar[hidden] { display: none; }
+  #bar button { background: transparent; color: var(--ink); border: 0; border-radius: 999px; padding: 7px 14px;
+    font: inherit; cursor: pointer; white-space: nowrap; }
+  #bar button:hover { background: rgba(243, 239, 228, 0.12); }
+  #bar button[aria-pressed="true"] { background: rgba(201, 216, 162, 0.22); color: #fff; }
+  #bar .rule { width: 1px; height: 18px; background: var(--line); }
+  #bar label { display: flex; align-items: center; gap: 8px; color: var(--muted); padding: 0 8px; }
+  #bar input[type=range] { width: 150px; accent-color: var(--leaf); }
+  #clock { min-width: 3.2em; color: var(--ink); font-variant-numeric: tabular-nums; }
+  #hint { left: 50%; bottom: 70px; transform: translateX(-50%); color: var(--muted); text-shadow: 0 1px 6px rgba(0,0,0,0.7);
+    text-align: center; white-space: nowrap; }
+  #hint b { color: var(--ink); font-weight: 600; }
+  #stats { right: 14px; top: 12px; color: var(--muted); text-shadow: 0 1px 4px rgba(0,0,0,0.7); text-align: right;
+    font-variant-numeric: tabular-nums; }
+  @media (max-width: 720px) {
+    #bar { flex-wrap: wrap; justify-content: center; border-radius: 18px; width: calc(100% - 24px); }
+    #hint { display: none; }
+  }
+</style>
+</head>
+<body class="idle">
+<canvas id="view" tabindex="0"></canvas>
+<div id="veil">
+  <div>
+    <h1>The Garden</h1>
+    <p>Willows over still water, oaks behind, and June in the borders.</p>
+    <p id="message">Starting…</p>
+    <progress id="progress" hidden></progress>
+    <div><button type="button" id="enter" hidden>Walk in</button></div>
+  </div>
+</div>
+<div class="ui" id="hint" hidden></div>
+<div class="ui" id="bar" hidden>
+  <button type="button" id="stroll" aria-pressed="true" title="Be led round the garden, or walk it yourself">Stroll</button>
+  <button type="button" id="sound" aria-pressed="false" title="Birdsong, water and the breeze">Sound</button>
+  <span class="rule"></span>
+  <label title="Time of day">Hour <input id="time" type="range" min="4.5" max="22.5" step="0.01" value="17.4"><span id="clock">17:24</span></label>
+  <span class="rule"></span>
+  <button type="button" id="weather" title="Change the sky">Calm</button>
+  <button type="button" id="full" title="Fill the screen">Full screen</button>
+</div>
+<div class="ui" id="stats" hidden></div>
+
+<script type="module">
+const params = new URLSearchParams(location.search);
+const el = (id) => document.getElementById(id);
+const canvas = el("view");
+const { default: init, WebViewer, header_bytes, read_header } = await import("./pkg/solstice_viewer.js").catch((error) => {
+  el("message").textContent = `Could not load the viewer: ${error.message ?? error}`;
+  el("message").className = "error";
+  throw error;
+});
+
+const sceneUrl = params.get("scene-url") ?? "assets/garden.solstice";
+const megabytes = (name, fallback) => (Number(params.get(name)) || fallback) * 1048576;
+// The garden is all near the eye at once: it wants more of the GPU than a scene seen from afar.
+const geometryBudget = megabytes("geometry-mb", 1536);
+const textureBudget = megabytes("texture-mb", 512);
+
+function fail(text) {
+  el("veil").classList.remove("lifted");
+  el("progress").hidden = true;
+  el("enter").hidden = true;
+  el("message").textContent = text;
+  el("message").className = "error";
+}
+
+/// Reads parts of the scene file by HTTP Range, or the whole of it once from a server without ranges.
+class SceneFile {
+  bytesFetched = 0;
+  #whole = null;
+  #url;
+  constructor(url) { this.#url = url; }
+  async read(start, end) {
+    if (this.#whole) return this.#whole.subarray(start, end);
+    const response = await fetch(this.#url, { headers: { Range: `bytes=${start}-${end - 1}` } });
+    if (!response.ok) throw new Error(`Could not load ${this.#url} (HTTP ${response.status}).`);
+    if (response.status === 200) {
+      const total = Number(response.headers.get("content-length")) || 0;
+      const reader = response.body.getReader();
+      const chunks = [];
+      let received = 0;
+      el("progress").hidden = total === 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.length;
+        if (total) el("progress").value = received / total;
+      }
+      const bytes = new Uint8Array(received);
+      let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+      el("progress").hidden = true;
+      this.#whole = bytes;
+      this.bytesFetched = received;
+      return bytes.subarray(start, end);
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    this.bytesFetched += bytes.length;
+    return bytes;
+  }
+}
+
+async function inflate(bytes) {
+  const unpacked = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(unpacked).arrayBuffer());
+}
+
+/// Fetches the pages the viewer asks for, neighbours in the file together.
+class Streamer {
+  static MAX_FETCHING = 24;
+  static MERGE_GAP_BYTES = 256 * 1024;
+  static MERGE_MAX_BYTES = 8 * 1048576;
+  #viewer; #file;
+  constructor(viewer, file) { this.#viewer = viewer; this.#file = file; }
+  pump() {
+    const flat = this.#viewer.stream_requests(Streamer.MAX_FETCHING);
+    const requests = [];
+    for (let i = 0; i < flat.length; i += 6) {
+      requests.push({ id: flat[i], start: flat[i + 1], end: flat[i + 2], deflated: flat[i + 3] !== 0 });
+    }
+    requests.sort((a, b) => a.start - b.start);
+    let run = [];
+    for (const request of requests) {
+      const last = run[run.length - 1];
+      if (last && (request.start - last.end > Streamer.MERGE_GAP_BYTES
+        || request.end - run[0].start > Streamer.MERGE_MAX_BYTES)) {
+        this.#fetchRun(run);
+        run = [];
+      }
+      run.push(request);
+    }
+    if (run.length > 0) this.#fetchRun(run);
+  }
+  async #fetchRun(run) {
+    const start = run[0].start;
+    let stored;
+    try {
+      stored = await this.#file.read(start, run[run.length - 1].end);
+    } catch (error) {
+      for (const request of run) setTimeout(() => this.#viewer.request_failed(request.id), 1000);
+      return;
+    }
+    for (const request of run) {
+      const part = stored.subarray(request.start - start, request.end - start);
+      try {
+        this.#viewer.deliver(request.id, request.deflated ? await inflate(part) : part);
+      } catch (error) {
+        setTimeout(() => this.#viewer.request_failed(request.id), 1000);
+      }
+    }
+  }
+}
+
+/// The ground to walk on, as the bake wrote it beside the scene: heights on a grid, the bridge's
+/// deck where it crosses the water, and the trunks that stand in the way.
+class Ground {
+  constructor(buffer) {
+    const view = new DataView(buffer);
+    this.n = view.getUint32(4, true);
+    this.half = view.getFloat32(8, true);
+    this.heights = new Float32Array(buffer, 12, this.n * this.n);
+    const at = 12 + this.n * this.n * 4;
+    const count = view.getUint32(at, true);
+    this.trunks = new Float32Array(buffer.slice(at + 4, at + 4 + count * 12));
+  }
+  height(x, z) {
+    const f = (v) => Math.min(Math.max((v + this.half) / (2 * this.half) * (this.n - 1), 0), this.n - 1.001);
+    const [fx, fz] = [f(x), f(z)];
+    const [ix, iz] = [Math.floor(fx), Math.floor(fz)];
+    const [tx, tz] = [fx - ix, fz - iz];
+    const h = (i, j) => this.heights[j * this.n + i];
+    return (h(ix, iz) * (1 - tx) + h(ix + 1, iz) * tx) * (1 - tz)
+      + (h(ix, iz + 1) * (1 - tx) + h(ix + 1, iz + 1) * tx) * tz;
+  }
+  /// Whether someone may stand at a spot: on dry ground or the bridge, inside the garden, and
+  /// not in a tree.
+  open(x, z) {
+    if (Math.abs(x) > this.half - 2 || Math.abs(z) > this.half - 2) return false;
+    if (this.height(x, z) < 0.04) return false;
+    for (let i = 0; i < this.trunks.length; i += 3) {
+      const [dx, dz] = [x - this.trunks[i], z - this.trunks[i + 1]];
+      if (dx * dx + dz * dz < this.trunks[i + 2] ** 2) return false;
+    }
+    return true;
+  }
+}
+
+/// The way a visitor is led: along the paths, in from the south, round the west of the pond by
+/// the willows, to the seat under the oak, back over the bridge, and round again.
+const TOUR = [
+  [3.6, 47], [1.6, 39], [1.0, 32], [3.2, 25], [2.0, 18.5], [0.6, 15.2], [-5, 14.6], [-12, 15.6],
+  [-18.4, 12.3], [-21.3, 4.6], [-21.0, -4.4], [-17.6, -10.9], [-10.6, -14.1], [-3.2, -12.6],
+  [2.6, -10.6], [5.6, -13.2], [4.4, -11.4], [2.5, -8.2], [2.2, -3.6], [2.2, 0], [2.2, 3.8],
+  [2.0, 8.5], [1.5, 13.4],
+];
+/// Where the round begins and ends: the fork south of the pond. The points before it lead in.
+const TOUR_LOOP = 5;
+
+/// A closed smooth curve through the tour's points, as points half a metre apart.
+function tourPath() {
+  const points = [];
+  const n = TOUR.length;
+  // The round closes from the last point back to the fork.
+  const at = (i) => TOUR[i < n ? i : TOUR_LOOP + ((i - n) % (n - TOUR_LOOP))];
+  for (let i = 0; i < n; i++) {
+    const [p0, p1, p2, p3] = [at(Math.max(i - 1, 0)), at(i), at(i + 1), at(i + 2)];
+    const steps = Math.max(2, Math.ceil(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / 0.5));
+    for (let k = 0; k < steps; k++) {
+      const t = k / steps, t2 = t * t, t3 = t2 * t;
+      const c = (a) => 0.5 * (2 * p1[a] + (-p0[a] + p2[a]) * t + (2 * p0[a] - 5 * p1[a] + 4 * p2[a] - p3[a]) * t2
+        + (-p0[a] + 3 * p1[a] - 3 * p2[a] + p3[a]) * t3);
+      points.push([c(0), c(1)]);
+    }
+  }
+  // How far along each point lies, and where the loop begins.
+  const lengths = [0];
+  for (let i = 1; i < points.length; i++) {
+    lengths.push(lengths[i - 1] + Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]));
+  }
+  const [fx, fz] = TOUR[TOUR_LOOP];
+  const loopStart = lengths[points.findIndex((p) => Math.hypot(p[0] - fx, p[1] - fz) < 0.3)] ?? 0;
+  return { points, lengths, total: lengths[lengths.length - 1], loopStart };
+}
+
+/// The garden's sounds, made here from noise and sine waves: no recordings. A breeze in the
+/// leaves that rises and falls, water lapping nearer the pond, birds by day, crickets as the
+/// light goes. Browsers allow sound only once the visitor has asked for it.
+class Soundscape {
+  constructor() { this.context = null; this.on = false; this.daylight = 1; this.nearWater = 0; }
+  enable(on) {
+    this.on = on;
+    if (on && !this.context) this.#build();
+    if (this.context) {
+      const now = this.context.currentTime;
+      this.master.gain.cancelScheduledValues(now);
+      this.master.gain.setTargetAtTime(on ? 0.55 : 0, now, 0.6);
+      if (on) this.context.resume();
+    }
+  }
+  #noise(seconds, colour) {
+    const ctx = this.context;
+    const length = Math.floor(ctx.sampleRate * seconds);
+    const buffer = ctx.createBuffer(2, length, ctx.sampleRate);
+    for (let channel = 0; channel < 2; channel++) {
+      const data = buffer.getChannelData(channel);
+      let last = 0;
+      for (let i = 0; i < length; i++) {
+        const white = Math.random() * 2 - 1;
+        last = colour === "brown" ? (last + 0.02 * white) / 1.02 : white;
+        data[i] = colour === "brown" ? last * 3.5 : white;
+      }
+    }
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    source.start();
+    return source;
+  }
+  #build() {
+    const AudioContext = window.AudioContext ?? window.webkitAudioContext;
+    const ctx = this.context = new AudioContext();
+    this.master = ctx.createGain();
+    this.master.gain.value = 0;
+    // A little room about every sound: a short, soft echo of the open air among trees.
+    const reverb = ctx.createConvolver();
+    const tail = ctx.createBuffer(2, ctx.sampleRate * 1.6, ctx.sampleRate);
+    for (let channel = 0; channel < 2; channel++) {
+      const data = tail.getChannelData(channel);
+      for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 3.2);
+    }
+    reverb.buffer = tail;
+    const wet = ctx.createGain();
+    wet.gain.value = 0.3;
+    this.voices = ctx.createGain();
+    this.voices.connect(this.master);
+    this.voices.connect(reverb).connect(wet).connect(this.master);
+    this.master.connect(ctx.destination);
+
+    // The breeze: two bands of noise, the leaves' hiss and a lower stir, each swelling by itself.
+    const band = (source, type, frequency, q) => {
+      const filter = ctx.createBiquadFilter();
+      filter.type = type; filter.frequency.value = frequency; filter.Q.value = q;
+      source.connect(filter);
+      return filter;
+    };
+    this.leaves = ctx.createGain();
+    this.leaves.gain.value = 0.02;
+    band(this.#noise(4, "white"), "bandpass", 2600, 0.6).connect(this.leaves).connect(this.master);
+    this.air = ctx.createGain();
+    this.air.gain.value = 0.05;
+    band(this.#noise(5, "brown"), "lowpass", 420, 0.3).connect(this.air).connect(this.master);
+    // Water: small, quick lappings, heard near the pond.
+    this.water = ctx.createGain();
+    this.water.gain.value = 0;
+    const ripple = band(this.#noise(3, "white"), "bandpass", 900, 2.5);
+    const lap = ctx.createGain();
+    lap.gain.value = 0.5;
+    const wobble = ctx.createOscillator();
+    wobble.frequency.value = 0.37;
+    const depth = ctx.createGain();
+    depth.gain.value = 0.35;
+    wobble.connect(depth).connect(lap.gain);
+    wobble.start();
+    ripple.connect(lap).connect(this.water).connect(this.master);
+    this.#gust();
+    this.#bird();
+    this.#cricket();
+  }
+  /// The breeze rises and falls every few seconds.
+  #gust() {
+    const ctx = this.context;
+    const now = ctx.currentTime;
+    const swell = 0.5 + Math.random();
+    this.leaves.gain.setTargetAtTime(0.012 + 0.03 * Math.random() * swell, now, 1.5 + Math.random() * 2);
+    this.air.gain.setTargetAtTime(0.03 + 0.05 * Math.random() * swell, now, 2 + Math.random() * 2);
+    setTimeout(() => this.#gust(), 3000 + Math.random() * 6000);
+  }
+  /// One bird's phrase: a few quick notes, each a sine swept in pitch, somewhere to left or right.
+  #bird() {
+    const ctx = this.context;
+    const wait = 1500 + Math.random() * 6500;
+    setTimeout(() => this.#bird(), wait);
+    if (!this.on || this.daylight < 0.25 || Math.random() > this.daylight) return;
+    const pan = ctx.createStereoPanner();
+    pan.pan.value = Math.random() * 1.8 - 0.9;
+    const far = ctx.createGain();
+    far.gain.value = 0.03 + Math.random() * 0.09;
+    pan.connect(far).connect(this.voices);
+    // Each visit is one of a few kinds of singer.
+    const kind = Math.floor(Math.random() * 4);
+    let t = ctx.currentTime + 0.05;
+    const note = (from, to, lasts, trill) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(from, t);
+      osc.frequency.exponentialRampToValueAtTime(to, t + lasts);
+      if (trill) {
+        const lfo = ctx.createOscillator();
+        const amount = ctx.createGain();
+        lfo.frequency.value = trill;
+        amount.gain.value = from * 0.06;
+        lfo.connect(amount).connect(osc.frequency);
+        lfo.start(t); lfo.stop(t + lasts);
+      }
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(1, t + Math.min(0.02, lasts * 0.3));
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + lasts);
+      osc.connect(gain).connect(pan);
+      osc.start(t); osc.stop(t + lasts + 0.02);
+      t += lasts;
+    };
+    if (kind === 0) {
+      // A warbler: a run of quick, varied notes.
+      const count = 5 + Math.floor(Math.random() * 7);
+      for (let i = 0; i < count; i++) {
+        const f = 2600 + Math.random() * 2600;
+        note(f, f * (0.75 + Math.random() * 0.6), 0.06 + Math.random() * 0.09, 0);
+        t += 0.02 + Math.random() * 0.06;
+      }
+    } else if (kind === 1) {
+      // A tit: two notes, see-saw, three or four times.
+      const [high, low] = [4200 + Math.random() * 600, 3300 + Math.random() * 400];
+      for (let i = 0; i < 3 + Math.floor(Math.random() * 2); i++) {
+        note(high, high * 0.98, 0.11, 0); t += 0.03;
+        note(low, low * 0.98, 0.13, 0); t += 0.07;
+      }
+    } else if (kind === 2) {
+      // A blackbird: a few slow, fluting phrases low in pitch.
+      for (let i = 0; i < 3 + Math.floor(Math.random() * 3); i++) {
+        const f = 1500 + Math.random() * 1200;
+        note(f, f * (0.85 + Math.random() * 0.45), 0.16 + Math.random() * 0.2, Math.random() < 0.3 ? 28 : 0);
+        t += 0.04 + Math.random() * 0.1;
+      }
+    } else {
+      // A single long trill.
+      const f = 3600 + Math.random() * 1500;
+      note(f, f * 1.05, 0.5 + Math.random() * 0.6, 22 + Math.random() * 14);
+    }
+  }
+  /// Crickets, once the light goes: a soft pulsed chirr.
+  #cricket() {
+    const ctx = this.context;
+    setTimeout(() => this.#cricket(), 380 + Math.random() * 300);
+    const dusk = 1 - this.daylight;
+    if (!this.on || dusk < 0.45) return;
+    const t = ctx.currentTime + 0.02;
+    const f = 4300 + Math.random() * 300;
+    for (let k = 0; k < 3; k++) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = f;
+      const at = t + k * 0.055;
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(0.012 * dusk, at + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.045);
+      osc.connect(gain).connect(this.voices);
+      osc.start(at); osc.stop(at + 0.06);
+    }
+  }
+  /// Told each frame how light it is (0 night to 1 day) and how near the water is (0 to 1).
+  update(daylight, nearWater) {
+    this.daylight = daylight;
+    if (this.context && this.on) this.water.gain.setTargetAtTime(0.05 * nearWater, this.context.currentTime, 0.8);
+  }
+}
+
+const canvasSize = () => {
+  const ratio = Math.min(window.devicePixelRatio || 1, 2);
+  return [Math.max(1, Math.round(canvas.clientWidth * ratio)), Math.max(1, Math.round(canvas.clientHeight * ratio))];
+};
+
+async function main() {
+  if (!navigator.gpu) {
+    fail("This browser does not support WebGPU. Try a recent version of Chrome or Edge.");
+    return;
+  }
+  if (!await navigator.gpu.requestAdapter()) {
+    fail("This browser has WebGPU, but offers no adapter for this GPU.");
+    return;
+  }
+  await init();
+  el("message").textContent = "Opening the gate…";
+  const file = new SceneFile(sceneUrl);
+  const [manifestOffset, manifestBytes] = read_header(await file.read(0, header_bytes()));
+  const manifest = await inflate(await file.read(manifestOffset, manifestOffset + manifestBytes));
+  const walkData = await fetch(sceneUrl.replace(/\.solstice$/, ".walk"))
+    .then((response) => (response.ok ? response.arrayBuffer() : null)).catch(() => null);
+  const ground = walkData ? new Ground(walkData) : null;
+
+  [canvas.width, canvas.height] = canvasSize();
+  const viewer = await WebViewer.create(
+    canvas, manifest, manifestOffset + manifestBytes, geometryBudget, textureBudget, false, false);
+  const streamer = new Streamer(viewer, file);
+
+  // A still, fair evening, the sun low in the west, and time passing slowly: an hour of the
+  // garden's day in five minutes.
+  const WEATHERS = [["calm", "Calm"], ["fair", "Breezy"], ["broken", "Clouded"], ["overcast", "Grey"], ["clear", "Clear"]];
+  let weather = Math.max(0, WEATHERS.findIndex(([name]) => name === params.get("weather")));
+  viewer.set_weather_changing(false, WEATHERS[weather][0]);
+  viewer.set_weather(WEATHERS[weather][0], 0);
+  el("weather").textContent = WEATHERS[weather][1];
+  el("weather").addEventListener("click", () => {
+    weather = (weather + 1) % WEATHERS.length;
+    viewer.set_weather(WEATHERS[weather][0], 20);
+    el("weather").textContent = WEATHERS[weather][1];
+  });
+  const startTime = params.get("time")?.split(":").map(Number);
+  viewer.set_time(startTime?.every(Number.isFinite) ? startTime[0] + (startTime[1] ?? 0) / 60 : 17.4);
+  viewer.set_day_length(Number(params.get("day-length") ?? 7200));
+  const quality = params.get("quality");
+  if (["high", "medium", "low"].includes(quality)) viewer.set_quality(quality);
+  // Motes in the air over the lawns, and fireflies for when the light goes.
+  viewer.spawn_effect("motes", 0, 0, 2);
+  viewer.spawn_effect("fireflies", 0, 0, 4);
+
+  const clockText = (hours) => {
+    const minutes = Math.floor(hours * 60) % 1440;
+    return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+  };
+  let draggingTime = false;
+  el("time").addEventListener("input", (e) => { draggingTime = true; viewer.set_time(e.target.valueAsNumber); });
+  el("time").addEventListener("change", () => { draggingTime = false; });
+
+  // Where the visitor stands and looks. The page walks; the viewer only draws.
+  const EYE = 1.62;
+  const tour = tourPath();
+  const camera = params.get("camera")?.split(",").map(Number);
+  const pose = { x: TOUR[0][0], z: TOUR[0][1], y: 0, yaw: 0, pitch: -0.04, travelled: 0, bob: 0 };
+  const groundAt = (x, z) => (ground ? Math.max(ground.height(x, z), 0.02) : 0.4);
+  pose.y = groundAt(pose.x, pose.z) + EYE;
+  let strolling = !params.has("walk") && !camera;
+  if (camera?.length === 5) [pose.x, pose.y, pose.z, pose.yaw, pose.pitch] = camera;
+  const setStrolling = (on) => {
+    strolling = on;
+    el("stroll").setAttribute("aria-pressed", String(on));
+    el("hint").innerHTML = on
+      ? "You are being led round. <b>Click</b> the garden, or press <b>W</b>, to walk it yourself."
+      : "<b>Click</b> to look about · <b>W A S D</b> to walk · <b>Shift</b> to hurry · <b>Esc</b> to let go";
+    if (on) {
+      // Take up the tour from the nearest point of it.
+      let best = 0;
+      for (let i = 0; i < tour.points.length; i++) {
+        const d = Math.hypot(tour.points[i][0] - pose.x, tour.points[i][1] - pose.z);
+        if (d < Math.hypot(tour.points[best][0] - pose.x, tour.points[best][1] - pose.z)) best = i;
+      }
+      pose.travelled = tour.lengths[best];
+    }
+  };
+  setStrolling(strolling);
+  el("stroll").addEventListener("click", () => setStrolling(!strolling));
+
+  const sounds = new Soundscape();
+  const setSound = (on) => { sounds.enable(on); el("sound").setAttribute("aria-pressed", String(on)); };
+  el("sound").addEventListener("click", () => setSound(!sounds.on));
+  el("full").addEventListener("click", () => {
+    if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.();
+  });
+
+  const keys = new Set();
+  const typing = (e) => /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);
+  addEventListener("keydown", (e) => {
+    if (typing(e)) return;
+    keys.add(e.code);
+    if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code) && strolling) {
+      setStrolling(false);
+    }
+  });
+  addEventListener("keyup", (e) => keys.delete(e.code));
+  addEventListener("blur", () => keys.clear());
+  canvas.addEventListener("click", (e) => {
+    if (strolling) setStrolling(false);
+    if (e.pointerType !== "touch") canvas.requestPointerLock?.();
+  });
+  addEventListener("mousemove", (e) => {
+    if (document.pointerLockElement === canvas) {
+      pose.yaw -= e.movementX * 0.0021;
+      pose.pitch = Math.max(-1.3, Math.min(1.3, pose.pitch - e.movementY * 0.0021));
+    }
+  });
+  // Touch: drag to look, two fingers to walk on.
+  let touchAt = null, walkingTouch = false;
+  canvas.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    if (strolling) setStrolling(false);
+    touchAt = [e.touches[0].clientX, e.touches[0].clientY];
+    walkingTouch = e.touches.length > 1;
+  }, { passive: false });
+  canvas.addEventListener("touchmove", (e) => {
+    e.preventDefault();
+    const [x, y] = [e.touches[0].clientX, e.touches[0].clientY];
+    if (touchAt) {
+      pose.yaw -= (x - touchAt[0]) * 0.004;
+      pose.pitch = Math.max(-1.3, Math.min(1.3, pose.pitch - (y - touchAt[1]) * 0.004));
+    }
+    touchAt = [x, y];
+  }, { passive: false });
+  canvas.addEventListener("touchend", (e) => { walkingTouch = e.touches.length > 1; touchAt = null; });
+
+  // The little there is to touch fades when left alone.
+  let idleTimer = null;
+  const stir = () => {
+    document.body.classList.remove("idle");
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => document.body.classList.add("idle"), 5000);
+  };
+  for (const event of ["mousemove", "keydown", "touchstart", "click"]) addEventListener(event, stir);
+
+  new ResizeObserver(() => {
+    const [width, height] = canvasSize();
+    if (width !== canvas.width || height !== canvas.height) {
+      canvas.width = width; canvas.height = height;
+      viewer.resize(width, height);
+    }
+  }).observe(canvas);
+
+  const turnTo = (from, to, share) => {
+    const d = Math.atan2(Math.sin(to - from), Math.cos(to - from));
+    return from + d * share;
+  };
+  const tourPoint = (distance) => {
+    // Past the end, round the loop again.
+    let d = distance;
+    if (d > tour.total) d = tour.loopStart + ((d - tour.loopStart) % (tour.total - tour.loopStart));
+    let i = 1;
+    while (i < tour.lengths.length - 1 && tour.lengths[i] < d) i++;
+    const span = tour.lengths[i] - tour.lengths[i - 1] || 1;
+    const t = (d - tour.lengths[i - 1]) / span;
+    const [a, b] = [tour.points[i - 1], tour.points[i]];
+    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  };
+  let velocity = [0, 0];
+  let smoothedY = pose.y;
+  function step(delta) {
+    if (strolling) {
+      // Led at a slow walk, looking where the path goes and, more than half, towards the water.
+      pose.travelled += delta * 0.62;
+      const [x, z] = tourPoint(pose.travelled);
+      const [ax, az] = tourPoint(pose.travelled + 5);
+      const ahead = Math.atan2(-(ax - x), -(az - z));
+      const glance = 0.5 + 0.35 * Math.sin(pose.travelled * 0.11);
+      const pond = Math.atan2(x - 1.5, z + 0.5);
+      const nearPond = Math.min(1, Math.max(0, (34 - Math.hypot(x, z)) / 14));
+      const want = turnTo(ahead, pond, glance * nearPond * 0.75);
+      pose.x = x; pose.z = z;
+      pose.yaw = turnTo(pose.yaw, want, 1 - Math.exp(-delta * 0.9));
+      pose.pitch += (-0.045 - pose.pitch) * (1 - Math.exp(-delta));
+    } else {
+      const axis = (positive, negative) => (positive.some((k) => keys.has(k)) ? 1 : 0) - (negative.some((k) => keys.has(k)) ? 1 : 0);
+      const forward = axis(["KeyW", "ArrowUp"], ["KeyS", "ArrowDown"]) + (walkingTouch ? 1 : 0);
+      const right = axis(["KeyD", "ArrowRight"], ["KeyA", "ArrowLeft"]);
+      const speed = keys.has("ShiftLeft") || keys.has("ShiftRight") ? 4.2 : 1.5;
+      const [sin, cos] = [Math.sin(pose.yaw), Math.cos(pose.yaw)];
+      const wanted = [(-sin * forward + cos * right) * speed, (-cos * forward - sin * right) * speed];
+      const ease = 1 - Math.exp(-delta * 8);
+      velocity = [velocity[0] + (wanted[0] - velocity[0]) * ease, velocity[1] + (wanted[1] - velocity[1]) * ease];
+      // Each way is tried by itself, so someone walking into the water's edge slides along it.
+      const nx = pose.x + velocity[0] * delta;
+      if (!ground || ground.open(nx, pose.z)) pose.x = nx; else velocity[0] = 0;
+      const nz = pose.z + velocity[1] * delta;
+      if (!ground || ground.open(pose.x, nz)) pose.z = nz; else velocity[1] = 0;
+      pose.travelled += Math.hypot(velocity[0], velocity[1]) * delta;
+    }
+    // The eye follows the ground a little late, and rises and falls with each step.
+    const target = groundAt(pose.x, pose.z) + EYE;
+    smoothedY += (target - smoothedY) * (1 - Math.exp(-delta * 6));
+    const moving = strolling ? 1 : Math.min(1, Math.hypot(velocity[0], velocity[1]) / 1.5);
+    pose.y = smoothedY + Math.sin(pose.travelled * 4.4) * 0.012 * moving;
+  }
+
+  // Wait for the ground about the gate before lifting the veil, so nothing is seen arriving.
+  el("message").textContent = "The garden is waking…";
+  window.garden = { viewer, pose, sounds, get frames() { return frames; }, get fps() { return fps; } };
+  let previous = performance.now();
+  let frames = 0, fps = 0, sinceReport = 0, framesAtReport = 0, settled = 0, entered = false;
+  let lastPages = -1;
+  function tick(now) {
+    const delta = Math.min((now - previous) / 1000, 0.1);
+    previous = now;
+    streamer.pump();
+    if (entered) step(delta);
+    viewer.set_camera(pose.x, pose.y, pose.z, pose.yaw, pose.pitch);
+    viewer.frame(delta, 0, 0, 0, 0, 0, false);
+    frames += 1;
+    sinceReport += delta;
+    if (sinceReport >= 0.5) {
+      fps = (frames - framesAtReport) / sinceReport;
+      framesAtReport = frames;
+      sinceReport = 0;
+      const hours = viewer.time_of_day();
+      if (!draggingTime) el("time").value = Math.min(22.5, Math.max(4.5, hours));
+      el("clock").textContent = clockText(hours);
+      // Light by the sun's height, roughly: full from seven to seven, gone by half past nine.
+      const daylight = Math.max(0, Math.min(1, Math.min((hours - 4.8) / 1.5, (21.4 - hours) / 1.8)));
+      const nearWater = Math.max(0, Math.min(1, 1.4 - Math.hypot(pose.x, pose.z) / 16));
+      sounds.update(daylight, nearWater);
+      if (params.has("stats")) {
+        el("stats").hidden = false;
+        el("stats").textContent = `${fps.toFixed(0)} fps · ${(viewer.triangles() / 1e6).toFixed(1)} M triangles · `
+          + `${viewer.pages_installed()}/${viewer.pages_total()} pages · ${(file.bytesFetched / 1e6).toFixed(0)} MB`;
+      }
+      // Ready once pages have stopped pouring in for a moment.
+      const pages = viewer.pages_installed();
+      settled = pages === lastPages ? settled + 1 : 0;
+      lastPages = pages;
+      if (!entered && el("enter").hidden && (settled >= 2 || frames > 600)) {
+        el("message").textContent = "";
+        el("enter").hidden = false;
+        if (params.has("enter")) el("enter").click();
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+  el("enter").addEventListener("click", () => {
+    entered = true;
+    el("veil").classList.add("lifted");
+    for (const id of ["bar", "hint"]) el(id).hidden = false;
+    if (!params.has("quiet")) setSound(true);
+    stir();
+  });
+  requestAnimationFrame(tick);
+}
+
+main().catch((error) => fail(String(error?.message ?? error)));
+</script>
+</body>
+</html>

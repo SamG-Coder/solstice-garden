@@ -28,10 +28,19 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
-      # The viewer only: each scene is served by its own Pages site (SamG-Coder/solstice-scene-*),
-      # published from a PC with scripts/publish-scenes.py, so this never moves scenes.
       - name: Build the site
         run: bash scripts/build-web.sh
+      # The scene takes minutes to bake and hundreds of megabytes to store, so it is baked on a
+      # PC and kept in a release (scripts/publish-garden.py), which scene.txt names. A browser
+      # cannot stream a file from a release, so the site serves a copy.
+      - name: Fetch the scene from its release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          read -r file release sha < <(grep -v '^#' scene.txt | grep .)
+          gh release download "$release" --repo "$GITHUB_REPOSITORY" --dir dist/assets \
+            --pattern "$file" --pattern "${file%.solstice}.walk"
+          echo "$sha  dist/assets/$file" | sha256sum --check
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
