@@ -154,6 +154,8 @@ class Streamer {
   static MAX_FETCHING = 24;
   static MERGE_GAP_BYTES = 256 * 1024;
   static MERGE_MAX_BYTES = 8 * 1048576;
+  /// How many fetches are under way.
+  inFlight = 0;
   #viewer; #file;
   constructor(viewer, file) { this.#viewer = viewer; this.#file = file; }
   pump() {
@@ -168,12 +170,16 @@ class Streamer {
       const last = run[run.length - 1];
       if (last && (request.start - last.end > Streamer.MERGE_GAP_BYTES
         || request.end - run[0].start > Streamer.MERGE_MAX_BYTES)) {
-        this.#fetchRun(run);
+        this.#track(this.#fetchRun(run));
         run = [];
       }
       run.push(request);
     }
-    if (run.length > 0) this.#fetchRun(run);
+    if (run.length > 0) this.#track(this.#fetchRun(run));
+  }
+  #track(fetching) {
+    this.inFlight += 1;
+    fetching.finally(() => { this.inFlight -= 1; });
   }
   async #fetchRun(run) {
     const start = run[0].start;
@@ -656,6 +662,7 @@ async function main() {
   el("message").textContent = "The garden is waking…";
   window.garden = { viewer, pose, sounds, get frames() { return frames; }, get fps() { return fps; } };
   let previous = performance.now();
+  const wakingSince = previous;
   let frames = 0, fps = 0, sinceReport = 0, framesAtReport = 0, settled = 0, entered = false;
   let lastPages = -1;
   function tick(now) {
@@ -683,14 +690,20 @@ async function main() {
         el("stats").textContent = `${fps.toFixed(0)} fps · ${(viewer.triangles() / 1e6).toFixed(1)} M triangles · `
           + `${viewer.pages_installed()}/${viewer.pages_total()} pages · ${(file.bytesFetched / 1e6).toFixed(0)} MB`;
       }
-      // Ready once pages have stopped pouring in for a moment.
+      // Ready once pages have stopped pouring in for a moment and none is on its way. Over a
+      // slow connection that can be a long while, so say how much has come, and after most of
+      // a minute let them in to watch the rest arrive.
       const pages = viewer.pages_installed();
       settled = pages === lastPages ? settled + 1 : 0;
       lastPages = pages;
-      if (!entered && el("enter").hidden && (settled >= 2 || frames > 600)) {
-        el("message").textContent = "";
-        el("enter").hidden = false;
-        if (params.has("enter")) el("enter").click();
+      if (!entered && el("enter").hidden) {
+        if ((settled >= 2 && streamer.inFlight === 0) || now - wakingSince > 45000) {
+          el("message").textContent = "";
+          el("enter").hidden = false;
+          if (params.has("enter")) el("enter").click();
+        } else {
+          el("message").textContent = `The garden is waking… ${(file.bytesFetched / 1e6).toFixed(0)} MB`;
+        }
       }
     }
     requestAnimationFrame(tick);
