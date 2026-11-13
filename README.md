@@ -36,9 +36,9 @@ geometry, 1.1 billion triangles of it as the garden stands.
 - **Borders**: lavender, catmint, salvia, delphiniums, foxgloves, daisies, poppies and alliums in
   the sun; ferns, hostas and white foxgloves in the shade of the oaks.
 - **Woodwork**: an arched oak footbridge and a slatted seat, with gravel paths between them.
-- **The day**: the sun crosses the sky and sets, clouds drift, motes hang in the light, and at
-  night there are stars and fireflies. Breeze, water, birdsong and crickets are made in the
-  page, with no recordings.
+- **The day**: the hour stands still at a low evening sun until you move it, from dawn through
+  sunset to night. Clouds drift, motes hang in the light, and at night there are stars and
+  fireflies. Breeze, water, birdsong and crickets are made in the page, with no recordings.
 
 ## Walking
 
@@ -57,9 +57,9 @@ key, to walk yourself.
 
 You walk on the ground and over the bridge; the water and the garden's own trees stop you.
 
-Add to the address: `?time=7:30` to start at an hour, `?weather=overcast` for a sky, `?quality=low`
-(or `medium`, `high`) for slower or faster GPUs, `?quiet` for no sound, and `?stats` for the
-frame rate.
+Add to the address: `?time=7:30` to start at an hour, `?day-length=7200` to let the day pass (a
+whole one in that many seconds), `?weather=overcast` for a sky, `?quality=low` (or `medium`,
+`high`) for slower or faster GPUs, `?quiet` for no sound, and `?stats` for the frame rate.
 
 ## Building it
 

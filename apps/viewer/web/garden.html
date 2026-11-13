@@ -483,8 +483,8 @@ async function main() {
     canvas, manifest, manifestOffset + manifestBytes, geometryBudget, textureBudget, false, false);
   const streamer = new Streamer(viewer, file);
 
-  // A still, fair evening, the sun low in the west, and time passing slowly: an hour of the
-  // garden's day in five minutes.
+  // A still, fair evening, the sun low in the west, and the hour held, so the shadows lie where
+  // they are until the visitor moves the hour.
   const WEATHERS = [["calm", "Calm"], ["fair", "Breezy"], ["broken", "Clouded"], ["overcast", "Grey"], ["clear", "Clear"]];
   let weather = Math.max(0, WEATHERS.findIndex(([name]) => name === params.get("weather")));
   viewer.set_weather_changing(false, WEATHERS[weather][0]);
@@ -497,7 +497,8 @@ async function main() {
   });
   const startTime = params.get("time")?.split(":").map(Number);
   viewer.set_time(startTime?.every(Number.isFinite) ? startTime[0] + (startTime[1] ?? 0) / 60 : 17.4);
-  viewer.set_day_length(Number(params.get("day-length") ?? 7200));
+  // ?day-length=SECONDS lets the day pass, a whole one in that long.
+  viewer.set_day_length(Number(params.get("day-length") ?? 0));
   const quality = params.get("quality");
   if (["high", "medium", "low"].includes(quality)) viewer.set_quality(quality);
   // Motes in the air over the lawns, and fireflies for when the light goes.
@@ -505,7 +506,9 @@ async function main() {
   viewer.spawn_effect("fireflies", 0, 0, 4);
 
   const clockText = (hours) => {
-    const minutes = Math.floor(hours * 60) % 1440;
+    // To the nearest minute: the viewer keeps the hour in single precision, where 17:24 held
+    // still is a hair short of itself.
+    const minutes = Math.round(hours * 60) % 1440;
     return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
   };
   let draggingTime = false;
