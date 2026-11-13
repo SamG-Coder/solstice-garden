@@ -1,4 +1,4 @@
 # The scene this site serves: its file name, the release of this repository that holds it
 # (a tag) and its SHA-256. Written by scripts/publish-garden.py; pushing a change deploys
 # the new scene.
-garden.solstice garden-2026-11-13 e58cfa5d00163cbe0da363401ab5b1690370e76076f56a0454115e59f5e9f1fd
+garden.solstice garden-2026-11-14 7b912c71e2c99415c2aadd3ac8bde2cb39e739f19b77341056152d63e349c899
