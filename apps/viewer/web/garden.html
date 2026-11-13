@@ -664,7 +664,7 @@ async function main() {
   let previous = performance.now();
   const wakingSince = previous;
   let frames = 0, fps = 0, sinceReport = 0, framesAtReport = 0, settled = 0, entered = false;
-  let lastPages = -1;
+  let lastPages = -1, pagesAtStart = -1;
   function tick(now) {
     const delta = Math.min((now - previous) / 1000, 0.1);
     previous = now;
@@ -690,14 +690,17 @@ async function main() {
         el("stats").textContent = `${fps.toFixed(0)} fps · ${(viewer.triangles() / 1e6).toFixed(1)} M triangles · `
           + `${viewer.pages_installed()}/${viewer.pages_total()} pages · ${(file.bytesFetched / 1e6).toFixed(0)} MB`;
       }
-      // Ready once pages have stopped pouring in for a moment and none is on its way. Over a
-      // slow connection that can be a long while, so say how much has come, and after most of
-      // a minute let them in to watch the rest arrive.
+      // Ready once pages have come, have stopped pouring in for a moment, and none is on its
+      // way: the first are not asked for until the GPU has reported what is in view, which on
+      // a slow start takes seconds. Over a slow connection it can all be a long while, so say
+      // how much has come, and after most of a minute let them in to watch the rest arrive.
       const pages = viewer.pages_installed();
       settled = pages === lastPages ? settled + 1 : 0;
       lastPages = pages;
+      if (pagesAtStart < 0) pagesAtStart = pages;
       if (!entered && el("enter").hidden) {
-        if ((settled >= 2 && streamer.inFlight === 0) || now - wakingSince > 45000) {
+        const arrived = pages > pagesAtStart;
+        if ((arrived && settled >= 2 && streamer.inFlight === 0) || now - wakingSince > 45000) {
           el("message").textContent = "";
           el("enter").hidden = false;
           if (params.has("enter")) el("enter").click();
