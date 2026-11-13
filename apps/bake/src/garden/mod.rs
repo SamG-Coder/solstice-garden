@@ -209,6 +209,10 @@ fn write_walk(site: &Site, path: &std::path::Path) -> std::io::Result<()> {
             bytes.extend_from_slice(&value.to_le_bytes());
         }
     }
+    // Written before the scene is, so on a fresh checkout its folder may not be there yet.
+    if let Some(folder) = path.parent().filter(|f| !f.as_os_str().is_empty()) {
+        std::fs::create_dir_all(folder)?;
+    }
     std::fs::write(path, bytes)
 }
 

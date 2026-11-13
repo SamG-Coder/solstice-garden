@@ -9,7 +9,7 @@ leaning over the water, old oaks, lawns, a flowering meadow and deep borders, wi
 footbridge across the pond's waist and a seat under an oak.
 
 **[Walk in the garden](https://samg-coder.github.io/solstice-garden/)** in a WebGPU browser such
-as Chrome or Edge, on a computer with a discrete GPU. The scene is 400 MB and streams as you
+as Chrome or Edge, on a computer with a discrete GPU. The scene is 270 MB and streams as you
 look around.
 
 ![The pond at evening, willows and oaks mirrored in it](docs/garden-pond.jpg)
